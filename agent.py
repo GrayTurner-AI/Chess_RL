@@ -12,14 +12,18 @@ class Agent:
     def __init__(self, args):
         self.args = args 
         self.mask = Mask()
-        self.model = self.load_model()
         self.memory = Memory()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+        try:
+            self.model = self.load_model().cuda()
+        except:
+            self.model = net.ResNet(128, 12, 1e-3).cuda()
+
+        self.mcts = MCTS(self, self.args)
+
     def choose_move(self, board):
-        mcts = MCTS(board, self, self.args)
-        best_move = mcts.search()
-        
+        best_move = self.mcts.search(board)
         return best_move
     
     def predict(self, board):
@@ -80,7 +84,7 @@ class Agent:
         checkpoint = torch.load('saved_models/model')
         state_dict = checkpoint['state_dict']
 
-        model = net.ResNet(128, 12, 1e-3)
+        model = net.ResNet(128, 12, 1e-3).cuda()
         model.load_state_dict(state_dict)
 
         return model
@@ -155,22 +159,38 @@ class Node:
 
 
 class MCTS:
-    def __init__(self, board, agent, args):
+    def __init__(self, agent, args):
         '''board is current game state, args is a dictionary with the C and max_search values'''
-        self.board = board 
         self.C, self.max_search, self.training = args['C'], args['max_search'], args['training']
         self.agent = agent
 
-    def search(self):
-        root = Node(self.board)
+    def rootSearch(self, board):
+        for child in self.root.children:
+            if child.board == board:
+                self.root = child
+                return
+        self.createRoot(board)
+    
+    def createRoot(self, board):
+        self.root = Node(board)
+        root_val, root_pol = self.agent.predict(self.root.board)
+        root_masked_pol = self.agent.decodePolicyOutput(self.root.board, root_pol)
+        self.root.value = root_val
+        self.root.policy_masked = root_masked_pol
+        self.root.policy = root_pol
 
-        #set root value and policy 
-        root_val, root_pol = self.agent.predict(root.board)
-        root_masked_pol = self.agent.decodePolicyOutput(root.board, root_pol)
-        root.value = root_val
-        root.policy_masked = root_masked_pol
-        root.policy = root_pol
-        
+
+    def search(self, board):
+        try:
+            self.root
+            self.rootSearch(board)
+
+        except:
+            #Define first node
+            self.createRoot(board)
+
+        root = self.root
+
         #Run MCTS!
         for _ in range(self.max_search):
 
@@ -195,7 +215,12 @@ class MCTS:
             self.backpropagate(node)
 
         self.agent.memory.store_move(root)
-        return self.move(root)
+        selected_move = self.move(root)
+        #Search children to update root 
+        for child in root.children:
+            if child.parent_action == selected_move:
+                self.root = child
+        return selected_move
 
     def ucb(self, child):
         raw_pol = torch.tensor(child.parent.policy_masked)
@@ -333,3 +358,4 @@ class Memory:
 
         return chess.Move( new_from_square, new_to_square )
     
+
