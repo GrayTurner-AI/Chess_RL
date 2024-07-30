@@ -7,12 +7,12 @@ import torch
 import pytorch_lightning as pl 
 from pytorch_lightning.callbacks import EarlyStopping, lr_finder
 from pytorch_lightning.loggers import TensorBoardLogger
-import tensorboard
 
 
 class Game:
-    def __init__(self, agent):
-        self.agent = agent 
+    def __init__(self):
+        self.args = {'C': 1.41, 'max_search':5, 'training':False}
+        self.agent = agent.Agent(self.args)
         
     def play(self):
 
@@ -47,12 +47,12 @@ class Game:
 
 class selfPlay:
     def __init__(self):
-        self.args = {'C': 1.41, 'max_search':8, 'training':True}
+        self.args = {'C': 1.41, 'max_search':100, 'training':True}
         self.agent = agent.Agent(self.args)
-        self.simulations_per_update = 3
-        self.batch_size = 8
-        self.epochs = 20
-        self.upgrade_iterations = 1
+        self.simulations_per_update = 500
+        self.batch_size = 256
+        self.epochs = 100
+        self.upgrade_iterations = 10
 
         self.train_session()
  
@@ -61,8 +61,6 @@ class selfPlay:
 
         board = chess.Board()
         while True: 
-            print(board)
-            print()
             white_move = self.agent.choose_move(board)
             board.push(white_move)
         
@@ -96,6 +94,8 @@ class selfPlay:
             self.target_values.extend(t_vals)
             self.target_policies.extend(t_pols)
             self.agent.memory.clear()
+
+            print('Game gen {} of {}'.format(_+1, self.simulations_per_update))
         xtrain, xtest, valtrain, valtest, poltrain, poltest = train_test_split(np.array(self.bitboards), np.array(self.target_values), np.array(self.target_policies), test_size=0.2)
 
         return xtrain, xtest, valtrain, valtest, poltrain, poltest
@@ -131,6 +131,9 @@ class selfPlay:
 
     def train_session(self):
         for _ in range(self.upgrade_iterations):
+            self.agent.model.cuda()
+            print('Model{}'.format(_+1))
+
             data = self.dataGeneration()
             self.train_once(data)
             self.agent.memory.clear()
@@ -151,4 +154,5 @@ class selfPlay:
 
 
 if __name__ == '__main__':
-    selfPlay()
+    #selfPlay()
+    Game().play()
